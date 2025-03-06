@@ -1,44 +1,47 @@
-"""Orchestration Agent for coordinating letter refinement workflow."""
+"""Orchestration Agent for coordinating text refinement workflow."""
 from typing import Dict, Any
 from crewai import Task
 from . import BaseLetterAgent
 
 class OrchestratorAgent(BaseLetterAgent):
-    """Agent responsible for coordinating the letter refinement workflow."""
+    """Agent responsible for coordinating the text refinement workflow."""
     
     def __init__(self, verbose: bool = False):
         super().__init__(
             name="Workflow Orchestrator",
-            role="Document Refinement Coordinator",
-            goal="Coordinate and optimize the letter refinement process across all specialized agents",
-            backstory="""I am an expert document workflow coordinator with deep understanding 
-            of business communication standards and document processing. I ensure that each 
+            role="Text Refinement Coordinator",
+            goal="Coordinate and optimize the text refinement process across all specialized agents",
+            backstory="""I am an expert text improvement coordinator. I ensure that each 
             refinement stage builds upon the previous ones effectively while maintaining 
-            document formatting and professional standards.""",
+            the original style and format of the text.""",
             verbose=verbose
         )
         
-    def create_task_prompt(self, letter_text: str, stage: str, previous_feedback: str = None) -> str:
+    def create_task_prompt(self, text: str, stage: str, previous_feedback: str = None) -> str:
         """Create a context-aware prompt for the current refinement stage."""
         base_prompts = {
             "grammar": """
-                As the workflow coordinator, I need you to focus on grammar and spelling corrections:
-                1. Maintain the original document structure and formatting
+                Focus on grammar and spelling corrections:
+                1. Keep the original style and format
                 2. Fix grammatical errors and typos
                 3. Ensure proper punctuation and capitalization
                 4. Correct verb tense agreements
-                5. Keep all formatting elements intact (headers, lists, etc.)
+                5. Maintain the original structure
+                
+                IMPORTANT: Do not add any formatting or structure that wasn't in the original.
                 
                 Original text:
                 {text}
                 """,
             "tone": """
-                Building on the grammatical improvements, enhance the tone and clarity:
-                1. Maintain the corrected grammar and spelling
-                2. Improve professional language and tone
-                3. Enhance clarity while keeping the message
-                4. Ensure consistent formality level
-                5. Preserve all document formatting
+                Building on the grammatical improvements, enhance clarity:
+                1. Keep the corrected grammar and spelling
+                2. Improve clarity and effectiveness
+                3. Ensure natural language
+                4. Maintain consistent tone
+                5. Preserve original style
+                
+                IMPORTANT: Do not change the format or structure.
                 
                 Previous version:
                 {text}
@@ -47,12 +50,14 @@ class OrchestratorAgent(BaseLetterAgent):
                 {feedback}
                 """,
             "coherence": """
-                With improved grammar and tone, focus on document coherence:
-                1. Maintain all previous improvements
-                2. Enhance paragraph flow and transitions
-                3. Ensure logical structure progression
-                4. Strengthen overall document organization
-                5. Keep formatting consistent with business standards
+                With improved grammar and clarity, focus on flow:
+                1. Keep all previous improvements
+                2. Enhance logical connections
+                3. Ensure smooth transitions
+                4. Improve overall coherence
+                5. Maintain original format
+                
+                IMPORTANT: Keep the original style and structure.
                 
                 Previous version:
                 {text}
@@ -62,11 +67,13 @@ class OrchestratorAgent(BaseLetterAgent):
                 """,
             "review": """
                 Perform final review and refinement:
-                1. Verify all previous improvements are preserved
-                2. Ensure consistent professional standards
-                3. Validate document formatting integrity
-                4. Confirm proper business letter structure
-                5. Make final polish while maintaining format
+                1. Verify all improvements
+                2. Ensure overall quality
+                3. Check format consistency
+                4. Confirm natural flow
+                5. Make final polish
+                
+                IMPORTANT: Preserve the original style and format.
                 
                 Previous version:
                 {text}
@@ -78,17 +85,17 @@ class OrchestratorAgent(BaseLetterAgent):
         
         prompt = base_prompts[stage]
         return prompt.format(
-            text=letter_text,
+            text=text,
             feedback=previous_feedback if previous_feedback else "No previous feedback available."
         )
         
     def evaluate_result(self, original: str, refined: str, stage: str) -> Dict[str, Any]:
         """Evaluate the results of each refinement stage."""
         evaluation_prompts = {
-            "grammar": "Evaluate grammar and spelling improvements while noting any formatting concerns.",
-            "tone": "Assess tone improvements and clarity enhancements, ensuring format preservation.",
-            "coherence": "Evaluate structural improvements and document flow, checking format consistency.",
-            "review": "Perform final quality assessment, verifying all formatting and professional standards."
+            "grammar": "Evaluate grammar and spelling improvements while noting any format changes.",
+            "tone": "Assess clarity improvements, ensuring original style is preserved.",
+            "coherence": "Evaluate flow improvements and coherence, checking format preservation.",
+            "review": "Perform final quality check, verifying style and format consistency."
         }
         
         return {
