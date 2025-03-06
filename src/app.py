@@ -11,9 +11,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize session state for storing refined text
+# Initialize session state
+if 'session_id' not in st.session_state:
+    st.session_state.session_id = 0
 if 'refined_text' not in st.session_state:
     st.session_state.refined_text = None
+
+def reset_app():
+    """Reset the app state completely."""
+    st.session_state.refined_text = None
+    st.session_state.summary = None
+    st.session_state.changes = None
+    st.session_state.session_id += 1
+    st.rerun()
 
 st.title("📝 Office Letter Refinement System")
 st.write("""
@@ -22,8 +32,12 @@ We'll enhance grammar, spelling, tone, clarity, and structure while maintaining
 your message's intent.
 """)
 
-# File upload
-uploaded_file = st.file_uploader("Upload your letter (.docx)", type="docx")
+# File upload with session-based key to force reset
+uploaded_file = st.file_uploader(
+    "Upload your letter (.docx)",
+    type="docx",
+    key=f"uploader_{st.session_state.session_id}"
+)
 
 if uploaded_file:
     try:
@@ -129,13 +143,10 @@ if uploaded_file:
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
-# Add a button to clear the session state and start over
+# Add a button to reset the app
 if st.session_state.refined_text is not None:
     if st.button("Process New Document"):
-        st.session_state.refined_text = None
-        st.session_state.summary = None
-        st.session_state.changes = None
-        st.experimental_rerun()
+        reset_app()
 
 st.sidebar.title("About")
 st.sidebar.write("""
