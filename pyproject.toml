@@ -1,0 +1,27 @@
+[project]
+name = "office-letter-refinement"
+version = "0.1.0"
+description = "An AI-powered office letter refinement system using CrewAI"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "crewai>=0.1.0",
+    "python-docx>=0.8.11",
+    "streamlit>=1.24.0",
+    "python-dotenv>=1.0.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "black>=23.3.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
