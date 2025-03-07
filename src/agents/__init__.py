@@ -72,7 +72,7 @@ from .grammar_agent import GrammarAgent
 from .tone_agent import ToneAgent
 from .coherence_agent import CoherenceAgent
 from .review_agent import ReviewAgent
-from .orchestrator_agent import OrchestratorAgent
+from .manager_agent import ManagerAgent
 
 __all__ = [
     'BaseLetterAgent',
@@ -80,5 +80,5 @@ __all__ = [
     'ToneAgent',
     'CoherenceAgent',
     'ReviewAgent',
-    'OrchestratorAgent'
+    'ManagerAgent'
 ] 

@@ -1,186 +1,289 @@
-"""Crew configuration for letter refinement."""
-from typing import List, Dict, Any
-from crewai import Crew, Task
-from src.agents import (
+"""Letter refinement crew module."""
+import re
+from typing import List, Dict, Any, Optional
+from crewai import Crew, Process, Task
+from .agents import (
     GrammarAgent,
     ToneAgent,
     CoherenceAgent,
     ReviewAgent,
-    OrchestratorAgent
+    ManagerAgent
+)
+from .utils.docx_utils import (
+    TextElement,
+    TableElement,
+    ImageElement,
+    DocumentElement
 )
 
 class LetterRefinementCrew:
-    """Manages the letter refinement crew and their tasks."""
-    
+    """Crew for refining office letters."""
+
     def __init__(self, verbose: bool = False):
-        """Initialize the crew with all required agents."""
-        self.verbose = verbose
-        self.orchestrator = OrchestratorAgent(verbose=verbose)
+        """Initialize the crew with agents."""
         self.grammar_agent = GrammarAgent(verbose=verbose)
         self.tone_agent = ToneAgent(verbose=verbose)
         self.coherence_agent = CoherenceAgent(verbose=verbose)
         self.review_agent = ReviewAgent(verbose=verbose)
-        self.feedback = {}
-        self._cached_result = None  # Cache for the final result
+        self.manager_agent = ManagerAgent(verbose=verbose)
+        self._cached_result = None
         
-    def create_tasks(self, letter_text: str) -> List[Task]:
-        """Create tasks for each stage of letter refinement."""
-        tasks = []
-        
-        # Task 1: Grammar and Spelling
-        grammar_task = Task(
-            description=self.orchestrator.create_task_prompt(letter_text, "grammar"),
-            expected_output="A grammatically correct and properly structured version of the letter",
-            agent=self.grammar_agent
-        )
-        tasks.append(grammar_task)
-        
-        # Task 2: Tone and Clarity
-        tone_task = Task(
-            description=self.orchestrator.create_task_prompt(
-                "{{grammar_task.output}}", 
-                "tone",
-                self.feedback.get("grammar")
-            ),
-            expected_output="A version of the letter with improved tone and clarity",
-            agent=self.tone_agent,
-            context=[grammar_task]
-        )
-        tasks.append(tone_task)
-        
-        # Task 3: Coherence and Structure
-        coherence_task = Task(
-            description=self.orchestrator.create_task_prompt(
-                "{{tone_task.output}}", 
-                "coherence",
-                self.feedback.get("tone")
-            ),
-            expected_output="A well-structured and coherent version of the letter",
-            agent=self.coherence_agent,
-            context=[tone_task]
-        )
-        tasks.append(coherence_task)
-        
-        # Task 4: Final Review
-        review_task = Task(
-            description=self.orchestrator.create_task_prompt(
-                "{{coherence_task.output}}", 
-                "review",
-                self.feedback.get("coherence")
-            ),
-            expected_output="A final, polished version of the letter meeting all professional standards",
-            agent=self.review_agent,
-            context=[coherence_task]
-        )
-        tasks.append(review_task)
-        
-        return tasks
-    
-    def _clean_output(self, text: str) -> str:
-        """Clean the output text by removing code blocks and unnecessary formatting."""
-        # Remove code block markers
-        text = text.replace('```', '')
-        
-        # Remove common language specifiers that might appear at the start
-        common_prefixes = ['text', 'markdown', 'docx', 'doc']
-        lines = text.split('\n')
-        if lines and lines[0].lower().strip() in common_prefixes:
-            lines = lines[1:]
-        text = '\n'.join(lines)
-        
-        # Remove any remaining markdown formatting
-        text = text.replace('*', '').replace('_', '').replace('#', '')
-        
-        # Clean up extra whitespace while preserving paragraph structure
-        paragraphs = [p.strip() for p in text.split('\n\n')]
-        text = '\n\n'.join(p for p in paragraphs if p)
-        
-        return text.strip()
-    
-    def _extract_result(self, result: Any) -> str:
-        """Extract and clean the final text from various result formats."""
-        if hasattr(result, 'output'):
-            text = str(result.output)
-        elif hasattr(result, 'raw_output'):
-            text = str(result.raw_output)
-        elif isinstance(result, (list, tuple)) and len(result) > 0:
-            text = str(result[-1])
-        elif isinstance(result, str):
-            text = result
-        elif isinstance(result, dict) and 'output' in result:
-            text = str(result['output'])
-        else:
-            text = str(result)
-        
-        return self._clean_output(text)
-    
-    def refine_letter(self, letter_text: str) -> str:
-        """Process the letter through all agents in sequence."""
-        # If we have a cached result, return it
-        if self._cached_result is not None:
-            return self._cached_result
-        
-        # Create tasks
-        tasks = self.create_tasks(letter_text)
-        
-        # Create crew
-        crew = Crew(
+        # Create the crew
+        self.crew = Crew(
             agents=[
-                self.orchestrator,
                 self.grammar_agent,
                 self.tone_agent,
                 self.coherence_agent,
                 self.review_agent
-            ],
-            tasks=tasks,
-            verbose=self.verbose
+            ],  # Manager agent should not be in this list
+            tasks=self.create_tasks(""),  # Placeholder tasks, will be replaced
+            manager_agent=self.manager_agent,
+            process=Process.hierarchical,
+            verbose=verbose
+        )
+
+    def create_tasks(self, text: str) -> List[Task]:
+        """Create tasks for the crew."""
+        # This is a placeholder - actual tasks will be created by the manager
+        return []
+    
+    def _get_agent_for_stage(self, stage: str):
+        """Get the appropriate agent for a task stage."""
+        agents = {
+            "grammar": self.grammar_agent,
+            "tone": self.tone_agent,
+            "coherence": self.coherence_agent,
+            "review": self.review_agent
+        }
+        return agents.get(stage, self.manager_agent)
+    
+    def _extract_text(self, elements: List[DocumentElement]) -> str:
+        """Extract text from document elements."""
+        text_parts = []
+        table_count = 0
+        
+        for element in elements:
+            if isinstance(element, TextElement):
+                text_parts.append(element.text)
+            elif isinstance(element, TableElement):
+                # Add a unique table placeholder with ID
+                table_id = table_count
+                table_count += 1
+                table_placeholder = f"[TABLE_ID_{table_id}: {len(element.rows)} rows x {len(element.columns)} columns]"
+                text_parts.append(table_placeholder)
+            elif isinstance(element, ImageElement):
+                # Add a placeholder for images
+                text_parts.append("[IMAGE]")
+        
+        return "\n\n".join(text_parts)
+    
+    def _clean_output(self, text: str) -> str:
+        """Clean the output text from code blocks and other formatting."""
+        if not text:
+            return ""
+            
+        # Import re module for regex operations
+        import re
+        
+        # Remove code block markers and common language specifiers
+        text = re.sub(r'```[a-zA-Z]*\n', '', text)
+        text = re.sub(r'```', '', text)
+        
+        # Remove markdown formatting
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Bold
+        text = re.sub(r'\*(.*?)\*', r'\1', text)      # Italic
+        text = re.sub(r'__(.*?)__', r'\1', text)      # Bold
+        text = re.sub(r'_(.*?)_', r'\1', text)        # Italic
+        text = re.sub(r'~~(.*?)~~', r'\1', text)      # Strikethrough
+        text = re.sub(r'^\s*#{1,6}\s+(.*?)$', r'\1', text, flags=re.MULTILINE)  # Headers
+        
+        # Remove list markers
+        text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  # Unordered lists
+        text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)  # Ordered lists
+        
+        # Replace ", and" with " and"
+        text = re.sub(r',\s*and\s+', ' and ', text)
+        text = re.sub(r',\s*and\n', ' and\n', text)
+        
+        # Clean up any double spaces
+        text = re.sub(r' {2,}', ' ', text)
+        
+        # Preserve paragraph structure
+        paragraphs = text.split('\n\n')
+        cleaned_paragraphs = [p.strip() for p in paragraphs if p.strip()]
+        
+        return '\n\n'.join(cleaned_paragraphs)
+    
+    def _extract_result(self, result: Any) -> str:
+        """Extract the result text from various result formats."""
+        if isinstance(result, str):
+            return self._clean_output(result)
+        elif isinstance(result, dict) and "result" in result:
+            return self._clean_output(result["result"])
+        elif isinstance(result, list) and len(result) > 0:
+            # Get the last result if it's a list
+            last_result = result[-1]
+            if isinstance(last_result, dict) and "result" in last_result:
+                return self._clean_output(last_result["result"])
+            return self._clean_output(str(last_result))
+        return self._clean_output(str(result))
+    
+    def _merge_refined_text(self, elements: List[DocumentElement], refined_text: str) -> List[DocumentElement]:
+        """Merge refined text with original document elements."""
+        if not refined_text:
+            return elements
+            
+        # Clean the refined text
+        refined_text = self._clean_output(refined_text)
+        
+        # Split refined text into parts
+        text_parts = refined_text.split("\n\n")
+        
+        # Map to track original tables by their placeholders
+        table_map = {}
+        for i, element in enumerate(elements):
+            if isinstance(element, TableElement):
+                # Create the same table placeholder as in _extract_text
+                table_id = len(table_map)
+                placeholder = f"[TABLE_ID_{table_id}: {len(element.rows)} rows x {len(element.columns)} columns]"
+                table_map[placeholder] = element
+        
+        # Process the refined text parts
+        result = []
+        text_index = 0
+        
+        for element in elements:
+            if isinstance(element, TextElement):
+                # Skip table and image placeholders or find next text part
+                while (text_index < len(text_parts) and 
+                      (text_parts[text_index].startswith("[TABLE") or 
+                       text_parts[text_index] == "[IMAGE]")):
+                    text_index += 1
+                
+                if text_index < len(text_parts):
+                    # Append refined text
+                    result.append(TextElement(text_parts[text_index]))
+                    text_index += 1
+                else:
+                    # Fallback to original if no more refined text
+                    result.append(element)
+            elif isinstance(element, TableElement):
+                # Always preserve the original table structure
+                result.append(element)
+            elif isinstance(element, ImageElement):
+                # Keep images as they are
+                result.append(element)
+        
+        return result
+    
+    def _restore_format(self, original_text: str, refined_text: str) -> str:
+        """Attempt to restore original formatting while keeping improvements."""
+        # This is a placeholder for format restoration logic
+        # For now, just return the refined text
+        return refined_text
+    
+    def compare_versions(self, original_elements: List[DocumentElement], 
+                         refined_elements: List[DocumentElement]) -> Dict[str, Any]:
+        """Compare original and refined versions."""
+        changes = {
+            "text_changes": 0,
+            "table_changes": 0,
+            "total_elements": len(original_elements),
+            "changed_elements": 0,
+            "summary": ""
+        }
+        
+        if len(original_elements) != len(refined_elements):
+            changes["summary"] = f"Element count changed: {len(original_elements)} → {len(refined_elements)}"
+            changes["changed_elements"] = max(len(original_elements), len(refined_elements))
+            return changes
+        
+        for i, (orig, refined) in enumerate(zip(original_elements, refined_elements)):
+            if type(orig) != type(refined):
+                changes["changed_elements"] += 1
+                continue
+                
+            if isinstance(orig, TextElement):
+                # Normalize whitespace for comparison
+                orig_text = re.sub(r'\s+', ' ', orig.text.strip())
+                refined_text = re.sub(r'\s+', ' ', refined.text.strip())
+                
+                if orig_text != refined_text:
+                    changes["text_changes"] += 1
+                    changes["changed_elements"] += 1
+            
+            elif isinstance(orig, TableElement):
+                # Compare tables cell by cell
+                table_changed = False
+                cell_changes = 0
+                
+                if len(orig.rows) != len(refined.rows) or len(orig.columns) != len(refined.columns):
+                    table_changed = True
+                else:
+                    for r in range(len(orig.rows)):
+                        for c in range(len(orig.columns)):
+                            orig_cell = orig.rows[r][c].strip()
+                            refined_cell = refined.rows[r][c].strip()
+                            if orig_cell != refined_cell:
+                                cell_changes += 1
+                
+                if table_changed or cell_changes > 0:
+                    changes["table_changes"] += 1
+                    changes["changed_elements"] += 1
+        
+        # Calculate percentage of text changes
+        text_elements = sum(1 for e in original_elements if isinstance(e, TextElement))
+        if text_elements > 0:
+            text_change_percent = (changes["text_changes"] / text_elements) * 100
+        else:
+            text_change_percent = 0
+            
+        # Generate summary
+        changes["summary"] = (
+            f"Changed {changes['changed_elements']} of {changes['total_elements']} elements. "
+            f"Text changes: {changes['text_changes']} ({text_change_percent:.1f}%). "
+            f"Table changes: {changes['table_changes']}."
         )
         
-        # Execute tasks and get the final result
-        try:
-            result = crew.kickoff()
-            final_text = self._extract_result(result)
-            
-            # Evaluate the final result
-            evaluation = self.orchestrator.evaluate_result(letter_text, final_text, "review")
-            if not evaluation['maintains_format']:
-                # If format is not maintained, try to restore it while keeping improvements
-                final_text = self._restore_format(letter_text, final_text)
-            
-            # Cache the result
-            self._cached_result = final_text
-            return final_text
-            
-        except Exception as e:
-            raise ValueError(f"Error processing tasks: {str(e)}")
+        return changes
     
-    def _restore_format(self, original: str, refined: str) -> str:
-        """Attempt to restore original formatting while keeping content improvements."""
-        # Split into paragraphs
-        orig_paras = original.split('\n\n')
-        refined_paras = refined.split('\n\n')
-        
-        # Ensure we have the same number of paragraphs
-        min_paras = min(len(orig_paras), len(refined_paras))
-        result_paras = []
-        
-        for i in range(min_paras):
-            # Get the original paragraph's formatting
-            orig_para = orig_paras[i]
-            refined_para = refined_paras[i]
+    def refine_letter(self, elements: List[DocumentElement]) -> Dict[str, Any]:
+        """Refine a letter using the crew."""
+        # Check if we already have a cached result
+        if self._cached_result:
+            return self._cached_result
             
-            # Preserve indentation and special characters
-            orig_leading_space = len(orig_para) - len(orig_para.lstrip())
-            orig_trailing_space = len(orig_para) - len(orig_para.rstrip())
-            
-            # Apply original formatting to refined content
-            formatted_para = (
-                ' ' * orig_leading_space +
-                refined_para.strip() +
-                ' ' * orig_trailing_space
-            )
-            
-            result_paras.append(formatted_para)
+        # Extract text from elements
+        text = self._extract_text(elements)
         
-        # Join paragraphs with original spacing
-        return '\n\n'.join(result_paras) 
+        # Create tasks with the manager agent
+        task_sequence = self.manager_agent.create_task_sequence(text)
+        
+        # Create a new crew with the tasks
+        tasks = []
+        current_text = text
+        
+        # Process each task in the sequence
+        for task_info in task_sequence:
+            stage = task_info["stage"]
+            result = task_info["result"]
+            
+            # Store the result for the next stage
+            current_text = result
+        
+        # Use the final result
+        refined_text = current_text
+        
+        # Merge refined text with original elements
+        refined_elements = self._merge_refined_text(elements, refined_text)
+        
+        # Compare versions
+        comparison = self.compare_versions(elements, refined_elements)
+        
+        # Cache the result
+        self._cached_result = {
+            "refined_elements": refined_elements,
+            "comparison": comparison
+        }
+        
+        return self._cached_result 
